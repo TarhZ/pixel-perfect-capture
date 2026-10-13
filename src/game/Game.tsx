@@ -141,7 +141,7 @@ export function Game() {
               })}
             </div>
             {s.picked !== null && (() => {
-              const o = challenge.options[s.picked];
+              const o = challenge.options[s.picked]!;
               const label = o.quality === "otima" ? "✅ Decisão excelente" : o.quality === "parcial" ? "⚠️ Decisão parcial" : "❌ Decisão inadequada";
               return (
                 <div className={`feedback fb-${o.quality} fade-in mt-6`}>
