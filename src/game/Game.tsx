@@ -38,13 +38,13 @@ export function Game() {
   const resume = () => { try { setS(JSON.parse(localStorage.getItem(KEY)!)); } catch { restart(); } };
   const toMenu = () => { setS((p) => ({ ...p, screen: "menu" })); setHasSave(true); };
 
-  const phase = PHASES[s.phase];
-  const challenge = phase?.challenges[s.ch];
+  const phase = PHASES[s.phase]!;
+  const challenge = phase.challenges[s.ch]!;
   const done = s.decisions.length;
 
   const pick = (i: number) => {
     if (s.picked !== null) return;
-    const o = challenge.options[i];
+    const o = challenge.options[i]!;
     setS((p) => ({
       ...p,
       picked: i,
