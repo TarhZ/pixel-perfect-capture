@@ -1,290 +1,343 @@
-import { useEffect, useState } from "react";
-import { PHASES, LEARNINGS, type Option } from "./data";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { LEVELS, LEARNINGS, type Log } from "./levels";
+import { NanoEngine, type HudState } from "./engine";
 
-type Screen = "menu" | "info" | "howto" | "phaseIntro" | "challenge" | "end";
-type Decision = { phase: string; challenge: string; choice: string; quality: Option["quality"] };
-type State = {
-  screen: Screen;
-  phase: number;
-  ch: number;
-  picked: number | null;
-  score: number;
-  safety: number;
-  budget: number;
-  decisions: Decision[];
-};
-
-const INITIAL: State = { screen: "menu", phase: 0, ch: 0, picked: null, score: 0, safety: 70, budget: 100, decisions: [] };
-const KEY = "nanomissao-save";
-const clamp = (n: number) => Math.max(0, Math.min(100, n));
-const TOTAL = PHASES.reduce((a, p) => a + p.challenges.length, 0);
+type Screen = "menu" | "howto" | "info" | "intro" | "playing" | "paused" | "complete" | "gameover" | "end";
+const KEY = "nanomissao-save-v2";
 
 export function Game() {
-  const [s, setS] = useState<State>(INITIAL);
+  const [screen, setScreen] = useState<Screen>("menu");
+  const [levelIdx, setLevelIdx] = useState(0);
+  const [hud, setHud] = useState<HudState | null>(null);
+  const [log, setLog] = useState<Log | null>(null);
+  const [gameOverReason, setGameOverReason] = useState("");
   const [hasSave, setHasSave] = useState(false);
+  const [isTouch, setIsTouch] = useState(false);
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const engineRef = useRef<NanoEngine | null>(null);
+  const screenRef = useRef(screen);
+  screenRef.current = screen;
 
   useEffect(() => {
+    setIsTouch(window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window);
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) setHasSave(JSON.parse(raw).screen !== "menu");
+      if (raw) {
+        const v = JSON.parse(raw);
+        if (v.levelIdx > 0 && v.levelIdx < LEVELS.length) setHasSave(true);
+      }
     } catch {}
   }, []);
+
+  const startLevel = useCallback((idx: number) => {
+    setLevelIdx(idx);
+    setLog(null);
+    setScreen("playing");
+    localStorage.setItem(KEY, JSON.stringify({ levelIdx: idx }));
+  }, []);
+
+  // cria/destrói o motor quando entra na tela de jogo
   useEffect(() => {
-    if (s.screen === "challenge" || s.screen === "phaseIntro" || s.screen === "end") localStorage.setItem(KEY, JSON.stringify(s));
-  }, [s]);
+    if (screen !== "playing" && screen !== "paused") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const engine = new NanoEngine(canvas, LEVELS[levelIdx]!, {
+      onLog: (l) => setLog(l),
+      onHud: (h) => setHud(h),
+      onComplete: () => {
+        if (levelIdx + 1 >= LEVELS.length) {
+          localStorage.removeItem(KEY);
+          setScreen("end");
+        } else setScreen("complete");
+      },
+      onGameOver: (reason) => {
+        setGameOverReason(reason);
+        setScreen("gameover");
+      },
+    });
+    engineRef.current = engine;
+    engine.start();
+    return () => {
+      engine.destroy();
+      engineRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen === "playing" || screen === "paused" ? levelIdx : null, screen === "playing" || screen === "paused"]);
 
-  const go = (screen: Screen) => setS((p) => ({ ...p, screen }));
-  const restart = () => { localStorage.removeItem(KEY); setHasSave(false); setS({ ...INITIAL, screen: "phaseIntro" }); };
-  const resume = () => { try { setS(JSON.parse(localStorage.getItem(KEY)!)); } catch { restart(); } };
-  const toMenu = () => { setS((p) => ({ ...p, screen: "menu" })); setHasSave(true); };
+  // pausa reflete no motor
+  useEffect(() => {
+    engineRef.current?.setPaused(screen !== "playing");
+  }, [screen]);
 
-  const phase = PHASES[s.phase]!;
-  const challenge = phase.challenges[s.ch]!;
-  const done = s.decisions.length;
+  // teclado
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      const eng = engineRef.current;
+      if (e.key === "Escape" || e.key.toLowerCase() === "p") {
+        if (screenRef.current === "playing") setScreen("paused");
+        else if (screenRef.current === "paused") setScreen("playing");
+        return;
+      }
+      if (!eng || screenRef.current !== "playing") return;
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", " "].includes(e.key)) e.preventDefault();
+      if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") eng.input.left = true;
+      if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") eng.input.right = true;
+      if (e.key === " " || e.key === "ArrowUp" || e.key.toLowerCase() === "w") eng.input.jump = true;
+      if (e.key.toLowerCase() === "e") eng.input.interact = true;
+    };
+    const up = (e: KeyboardEvent) => {
+      const eng = engineRef.current;
+      if (!eng) return;
+      if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") eng.input.left = false;
+      if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") eng.input.right = false;
+      if (e.key === " " || e.key === "ArrowUp" || e.key.toLowerCase() === "w") eng.input.jump = false;
+      if (e.key.toLowerCase() === "e") eng.input.interact = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
 
-  const pick = (i: number) => {
-    if (s.picked !== null) return;
-    const o = challenge.options[i]!;
-    setS((p) => ({
-      ...p,
-      picked: i,
-      score: p.score + o.points,
-      safety: clamp(p.safety + o.safety),
-      budget: clamp(p.budget + o.budget),
-      decisions: [...p.decisions, { phase: phase.name, challenge: challenge.title, choice: o.text, quality: o.quality }],
-    }));
+  const toMenu = () => {
+    setScreen("menu");
+    setHasSave(true);
   };
-  const next = () => {
-    if (s.picked === null) return;
-    if (s.ch + 1 < phase.challenges.length) setS((p) => ({ ...p, ch: p.ch + 1, picked: null }));
-    else if (s.phase + 1 < PHASES.length) setS((p) => ({ ...p, phase: p.phase + 1, ch: 0, picked: null, screen: "phaseIntro" }));
-    else setS((p) => ({ ...p, picked: null, screen: "end" }));
+  const restartAll = () => {
+    localStorage.removeItem(KEY);
+    setHasSave(false);
+    setLevelIdx(0);
+    setScreen("intro");
   };
+  const resume = () => {
+    try {
+      const v = JSON.parse(localStorage.getItem(KEY)!);
+      setLevelIdx(v.levelIdx);
+      setScreen("intro");
+    } catch {
+      restartAll();
+    }
+  };
+
+  const level = LEVELS[levelIdx]!;
+  const inGame = screen === "playing" || screen === "paused" || screen === "complete" || screen === "gameover";
+
+  const touchBtn = (key: "left" | "right" | "jump" | "interact", label: string, cls = "") => (
+    <button
+      className={`touch-btn ${cls}`}
+      aria-label={label}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        if (engineRef.current) engineRef.current.input[key] = true;
+      }}
+      onPointerUp={() => {
+        if (engineRef.current) engineRef.current.input[key] = false;
+      }}
+      onPointerLeave={() => {
+        if (engineRef.current) engineRef.current.input[key] = false;
+      }}
+      onPointerCancel={() => {
+        if (engineRef.current) engineRef.current.input[key] = false;
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div className="nano-bg relative min-h-screen overflow-hidden">
-      <Particles />
-      <div className="relative z-10 mx-auto max-w-4xl px-4 py-6 sm:py-10">
-        {s.screen === "menu" && (
-          <div className="fade-in flex min-h-[85vh] flex-col items-center justify-center text-center">
-            <div className="nanobot mb-6" aria-hidden />
-            <h1 className="font-display glow-text text-5xl font-black tracking-wider sm:text-7xl">NanoMissão</h1>
-            <p className="font-display mt-2 text-sm uppercase tracking-[0.3em] text-accent sm:text-base">Salvando o Corpo Humano</p>
-            <p className="mt-6 text-xl text-primary">"A ciência está em suas mãos"</p>
-            <p className="mt-4 max-w-xl text-muted-foreground">
-              Lidere uma equipe de nanomedicina em 4 fases: investigação, tratamento, segurança e bioética. Suas decisões afetam a pontuação, a segurança do paciente e o orçamento.
-            </p>
-            <button className="btn-hero mt-8" onClick={restart}>INICIAR MISSÃO</button>
-            {hasSave && <button className="btn-ghost mt-3" onClick={resume}>Continuar missão salva</button>}
-            <div className="mt-4 flex flex-wrap justify-center gap-3">
-              <button className="btn-ghost" onClick={() => go("howto")}>📘 Instruções</button>
-              <button className="btn-ghost" onClick={() => go("info")}>🧬 O que é nanotecnologia médica?</button>
-            </div>
+      {screen === "menu" && (
+        <div className="relative z-10 mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center px-4 text-center">
+          <div className="nanobot mb-6" aria-hidden />
+          <h1 className="font-display glow-text text-4xl font-black tracking-wider sm:text-7xl">NanoMissão</h1>
+          <p className="font-display mt-2 text-xs uppercase tracking-[0.3em] text-accent sm:text-base">Operação Corpo Humano</p>
+          <p className="mt-6 max-w-xl text-muted-foreground">
+            Pilote um nanorrobô médico por dentro do corpo humano em 4 missões de exploração: colete amostras, desvie de leucócitos, entregue medicamentos e torne o tratamento acessível.
+          </p>
+          <button className="btn-hero mt-8" onClick={restartAll}>▶ JOGAR</button>
+          {hasSave && <button className="btn-ghost mt-3" onClick={resume}>Continuar missão salva</button>}
+          <div className="mt-4 flex flex-wrap justify-center gap-3">
+            <button className="btn-ghost" onClick={() => setScreen("howto")}>🎮 Controles</button>
+            <button className="btn-ghost" onClick={() => setScreen("info")}>🧬 O que é nanotecnologia médica?</button>
           </div>
-        )}
-
-        {s.screen === "howto" && (
-          <Panel title="Instruções" onBack={() => go("menu")}>
-            <ul className="space-y-3 text-muted-foreground">
-              <li>🎯 São <b className="text-foreground">4 fases</b> com <b className="text-foreground">3 desafios</b> cada.</li>
-              <li>🧠 Escolha uma alternativa: você recebe feedback e uma explicação científica imediatamente.</li>
-              <li>⭐ <b className="text-foreground">Pontos</b>: aumentam com decisões responsáveis.</li>
-              <li>🛡️ <b className="text-foreground">Segurança</b>: representa o bem-estar do paciente e da sociedade.</li>
-              <li>💰 <b className="text-foreground">Orçamento</b>: recursos da equipe. Gaste com sabedoria.</li>
-              <li>🔒 Não é possível avançar sem responder ao desafio atual.</li>
-              <li>💾 O progresso é salvo automaticamente neste dispositivo.</li>
-            </ul>
-          </Panel>
-        )}
-
-        {s.screen === "info" && (
-          <Panel title="O que é nanotecnologia médica?" onBack={() => go("menu")}>
-            <div className="space-y-3 text-muted-foreground">
-              <p><b className="text-foreground">Nanotecnologia</b> é o estudo e a manipulação de materiais na escala de 1 a 100 nanômetros — um nanômetro é um bilionésimo de metro. Um fio de cabelo tem cerca de 80.000 nm de espessura!</p>
-              <p>Na <b className="text-foreground">medicina</b>, ela é usada e pesquisada para: diagnóstico por imagem, nanossensores, liberação direcionada de fármacos (lipossomas, nanopartículas poliméricas), vacinas (como as de RNA com nanopartículas lipídicas) e engenharia de tecidos.</p>
-              <p><b className="text-foreground">Biotecnologia</b> usa organismos e moléculas biológicas para criar produtos e soluções — e frequentemente se combina com a nanotecnologia.</p>
-              <p className="rounded-lg border border-border bg-secondary/40 p-3 text-sm">⚠️ Este jogo tem fins educativos. Não promete curas e não substitui orientação médica.</p>
-            </div>
-          </Panel>
-        )}
-
-        {(s.screen === "phaseIntro" || s.screen === "challenge") && (
-          <HUD s={s} done={done} onMenu={toMenu} onRestart={restart} />
-        )}
-
-        {s.screen === "phaseIntro" && (
-          <div className="card-glass fade-in mt-6 p-6 text-center sm:p-10" key={`pi${s.phase}`}>
-            <div className="text-6xl">{phase.icon}</div>
-            <p className="font-display mt-4 text-sm uppercase tracking-widest text-accent">Fase {phase.id} de {PHASES.length}</p>
-            <h2 className="font-display mt-1 text-3xl font-bold">{phase.name}</h2>
-            <p className="mx-auto mt-4 max-w-xl text-muted-foreground">{phase.intro}</p>
-            <button className="btn-hero mt-8" onClick={() => go("challenge")}>Começar fase</button>
-          </div>
-        )}
-
-        {s.screen === "challenge" && (
-          <div className="card-glass fade-in mt-6 p-5 sm:p-8" key={`c${s.phase}-${s.ch}`}>
-            <p className="font-display text-xs uppercase tracking-widest text-accent">
-              {phase.icon} Fase {phase.id} · Desafio {s.ch + 1}/{phase.challenges.length}
-            </p>
-            <h2 className="font-display mt-2 text-2xl font-bold">{challenge.title}</h2>
-            <p className="mt-2 text-muted-foreground">{challenge.scenario}</p>
-            <div className="mt-6 grid gap-3">
-              {challenge.options.map((o, i) => {
-                const st = s.picked === null ? "" : i === s.picked ? `opt-${o.quality}` : o.quality === "otima" ? "opt-reveal" : "opt-dim";
-                return (
-                  <button key={i} className={`option ${st}`} disabled={s.picked !== null} onClick={() => pick(i)}>
-                    <span className="option-letter">{String.fromCharCode(65 + i)}</span>
-                    <span>{o.text}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {s.picked !== null && (() => {
-              const o = challenge.options[s.picked]!;
-              const label = o.quality === "otima" ? "✅ Decisão excelente" : o.quality === "parcial" ? "⚠️ Decisão parcial" : "❌ Decisão inadequada";
-              return (
-                <div className={`feedback fb-${o.quality} fade-in mt-6`}>
-                  <p className="font-display font-bold">{label}</p>
-                  <p className="mt-2">{o.feedback}</p>
-                  <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                    <Delta label="Pontos" v={o.points} />
-                    <Delta label="Segurança" v={o.safety} />
-                    <Delta label="Orçamento" v={o.budget} />
-                  </div>
-                  <button className="btn-hero mt-5" onClick={next}>Continuar →</button>
-                </div>
-              );
-            })()}
-          </div>
-        )}
-
-        {s.screen === "end" && <End s={s} onRestart={restart} onMenu={() => { localStorage.removeItem(KEY); setHasSave(false); setS(INITIAL); }} />}
-      </div>
-    </div>
-  );
-}
-
-function HUD({ s, done, onMenu, onRestart }: { s: State; done: number; onMenu: () => void; onRestart: () => void }) {
-  return (
-    <div className="card-glass p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="font-display text-lg font-bold glow-text">⭐ {s.score} pts</span>
-        <div className="flex gap-2">
-          <button className="btn-ghost btn-sm" onClick={onMenu}>Menu</button>
-          <button className="btn-ghost btn-sm" onClick={onRestart}>Reiniciar</button>
         </div>
-      </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        <Bar label="🛡️ Segurança" v={s.safety} kind="safety" />
-        <Bar label="💰 Orçamento" v={s.budget} kind="budget" />
-        <Bar label="🚀 Progresso" v={Math.round((done / TOTAL) * 100)} kind="progress" />
-      </div>
+      )}
+
+      {screen === "howto" && (
+        <Panel title="Controles" onBack={() => setScreen("menu")}>
+          <ul className="space-y-3 text-muted-foreground">
+            <li>⬅️➡️ <b className="text-foreground">Setas ou A/D</b>: mover o nanorrobô.</li>
+            <li>␣ <b className="text-foreground">Espaço</b>: pular / impulsionar (segure para impulso maior).</li>
+            <li>🔍 <b className="text-foreground">E</b>: interagir com equipamentos e pontos de risco.</li>
+            <li>⏸️ <b className="text-foreground">Esc ou P</b>: pausar.</li>
+            <li>📱 <b className="text-foreground">No celular</b>: use os botões de toque na tela.</li>
+            <li>🩸 Desvie dos <b className="text-foreground">leucócitos</b> — eles danificam seu equipamento.</li>
+            <li>🔋 Fique de olho na <b className="text-foreground">energia</b>: se acabar, a missão falha.</li>
+          </ul>
+        </Panel>
+      )}
+
+      {screen === "info" && (
+        <Panel title="O que é nanotecnologia médica?" onBack={() => setScreen("menu")}>
+          <div className="space-y-3 text-muted-foreground">
+            <p><b className="text-foreground">Nanotecnologia</b> é o estudo e a manipulação de materiais na escala de 1 a 100 nanômetros — um nanômetro é um bilionésimo de metro. Um fio de cabelo tem cerca de 80.000 nm de espessura!</p>
+            <p>Na <b className="text-foreground">medicina</b>, ela é usada e pesquisada para: diagnóstico por imagem, nanossensores, liberação direcionada de fármacos (lipossomas, nanopartículas poliméricas), vacinas (como as de RNA com nanopartículas lipídicas) e engenharia de tecidos.</p>
+            <p className="rounded-lg border border-border bg-secondary/40 p-3 text-sm">⚠️ Este jogo tem fins educativos. Não promete curas e não substitui orientação médica.</p>
+          </div>
+        </Panel>
+      )}
+
+      {screen === "intro" && (
+        <div className="relative z-10 mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-4 text-center">
+          <div className="card-glass fade-in p-6 sm:p-10">
+            <div className="text-6xl">{level.icon}</div>
+            <p className="font-display mt-4 text-sm uppercase tracking-widest text-accent">Missão {level.id} de {LEVELS.length}</p>
+            <h2 className="font-display mt-1 text-2xl font-bold sm:text-3xl">{level.name}</h2>
+            <p className="mt-4 text-muted-foreground">{level.intro}</p>
+            <p className="mt-4 rounded-lg border border-border bg-secondary/40 p-3 text-sm text-primary">🎯 {level.objective}</p>
+            <button className="btn-hero mt-8" onClick={() => startLevel(levelIdx)}>Iniciar missão</button>
+          </div>
+        </div>
+      )}
+
+      {inGame && (
+        <div className="fixed inset-0 z-20 flex flex-col bg-background">
+          {/* HUD */}
+          {hud && (
+            <div className="game-hud">
+              <div className="flex items-center gap-2">
+                <span className="font-display text-sm font-bold">{hud.levelIcon} M{hud.levelIndex}/{hud.totalLevels}</span>
+                <span className="hidden text-xs text-muted-foreground sm:inline">{hud.objective}</span>
+              </div>
+              <div className="flex flex-1 items-center justify-end gap-3">
+                <MiniBar label="🔋" v={hud.energy} kind="progress" title="Energia" />
+                <MiniBar label="🛡️" v={hud.integrity} kind="safety" title="Integridade" />
+                <span className="chip text-xs">🧪 {hud.collected}/{hud.total}{hud.totalInteract > 0 ? ` · 🔍 ${hud.interacted}/${hud.totalInteract}` : ""}</span>
+                <button className="btn-ghost btn-sm" onClick={() => setScreen("paused")}>⏸</button>
+              </div>
+            </div>
+          )}
+
+          {/* canvas */}
+          <div className="relative flex-1">
+            <canvas ref={canvasRef} className="block h-full w-full" />
+
+            {/* registro de missão */}
+            {log && screen === "playing" && (
+              <div className="mission-log fade-in">
+                <p className="font-display text-sm font-bold text-accent">{log.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{log.text}</p>
+                <button className="btn-ghost btn-sm mt-2" onClick={() => setLog(null)}>Fechar ✕</button>
+              </div>
+            )}
+
+            {/* controles de toque */}
+            {isTouch && screen === "playing" && (
+              <>
+                <div className="touch-cluster left">
+                  {touchBtn("left", "◀")}
+                  {touchBtn("right", "▶")}
+                </div>
+                <div className="touch-cluster right">
+                  {touchBtn("interact", "E", "touch-interact")}
+                  {touchBtn("jump", "⤒", "touch-jump")}
+                </div>
+              </>
+            )}
+
+            {/* pausa */}
+            {screen === "paused" && (
+              <Overlay title="⏸️ Pausado" sub={level.name}>
+                <button className="btn-hero" onClick={() => setScreen("playing")}>Continuar</button>
+                <button className="btn-ghost" onClick={() => startLevel(levelIdx)}>Reiniciar missão</button>
+                <button className="btn-ghost" onClick={toMenu}>Menu principal</button>
+              </Overlay>
+            )}
+
+            {/* missão completa */}
+            {screen === "complete" && (
+              <Overlay title="✅ Missão cumprida!" sub={`${level.icon} ${level.name}`}>
+                <p className="max-w-md text-sm text-muted-foreground">Excelente trabalho, operador(a). Próxima missão: <b className="text-foreground">{LEVELS[levelIdx + 1]!.name}</b></p>
+                <button className="btn-hero" onClick={() => { setLevelIdx(levelIdx + 1); setScreen("intro"); localStorage.setItem(KEY, JSON.stringify({ levelIdx: levelIdx + 1 })); }}>Próxima missão →</button>
+                <button className="btn-ghost" onClick={() => startLevel(levelIdx)}>Rejogar esta missão</button>
+              </Overlay>
+            )}
+
+            {/* game over */}
+            {screen === "gameover" && (
+              <Overlay title="💥 Missão falhou" sub={level.name}>
+                <p className="max-w-md text-sm text-muted-foreground">{gameOverReason}</p>
+                <button className="btn-hero" onClick={() => startLevel(levelIdx)}>Tentar de novo</button>
+                <button className="btn-ghost" onClick={toMenu}>Menu principal</button>
+              </Overlay>
+            )}
+          </div>
+        </div>
+      )}
+
+      {screen === "end" && (
+        <div className="relative z-10 mx-auto max-w-3xl px-4 py-10">
+          <div className="card-glass fade-in p-6 text-center sm:p-10">
+            <div className="text-6xl">🏆</div>
+            <p className="font-display mt-3 text-sm uppercase tracking-widest text-accent">Operação Corpo Humano concluída</p>
+            <h2 className="font-display glow-text mt-1 text-3xl font-black sm:text-4xl">Nanocientista de Verdade</h2>
+            <p className="mt-3 text-muted-foreground">Você explorou a corrente sanguínea, entregou medicamentos, garantiu a segurança e lutou pelo acesso justo ao tratamento.</p>
+          </div>
+          <div className="card-glass fade-in mt-6 p-6">
+            <h3 className="font-display text-xl font-bold">O que você aprendeu na missão</h3>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {LEARNINGS.map((l) => (
+                <div key={l.t} className="rounded-lg border border-border bg-secondary/40 p-4">
+                  <p className="font-display font-bold text-accent">{l.t}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{l.d}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">Conteúdo introdutório e educativo. Não substitui orientação médica.</p>
+          </div>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <button className="btn-hero" onClick={restartAll}>Jogar novamente</button>
+            <button className="btn-ghost" onClick={() => { localStorage.removeItem(KEY); setHasSave(false); setScreen("menu"); }}>Voltar ao menu</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function Bar({ label, v, kind }: { label: string; v: number; kind: string }) {
+function MiniBar({ label, v, kind, title }: { label: string; v: number; kind: string; title: string }) {
   return (
-    <div>
-      <div className="flex justify-between text-xs text-muted-foreground"><span>{label}</span><span>{v}%</span></div>
-      <div className="bar-track mt-1"><div className={`bar-fill bar-${kind}`} style={{ width: `${v}%` }} /></div>
+    <div className="w-20 sm:w-28" title={title}>
+      <div className="flex justify-between text-[10px] text-muted-foreground"><span>{label}</span><span>{v}%</span></div>
+      <div className="bar-track mt-0.5 !h-1.5"><div className={`bar-fill bar-${kind}`} style={{ width: `${v}%` }} /></div>
     </div>
   );
 }
 
-function Delta({ label, v }: { label: string; v: number }) {
-  if (v === 0) return <span className="chip">{label} 0</span>;
-  return <span className={`chip ${v > 0 ? "chip-up" : "chip-down"}`}>{label} {v > 0 ? "+" : ""}{v}</span>;
+function Overlay({ title, sub, children }: { title: string; sub: string; children: React.ReactNode }) {
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+      <div className="card-glass fade-in mx-4 flex max-w-lg flex-col items-center gap-3 p-8 text-center">
+        <h2 className="font-display glow-text text-2xl font-black sm:text-3xl">{title}</h2>
+        <p className="text-sm text-muted-foreground">{sub}</p>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function Panel({ title, onBack, children }: { title: string; onBack: () => void; children: React.ReactNode }) {
   return (
-    <div className="card-glass fade-in mx-auto mt-10 max-w-2xl p-6 sm:p-10">
-      <h2 className="font-display glow-text text-2xl font-bold sm:text-3xl">{title}</h2>
-      <div className="mt-6">{children}</div>
-      <button className="btn-hero mt-8" onClick={onBack}>← Voltar ao menu</button>
-    </div>
-  );
-}
-
-export function rank(score: number, safety: number, budget: number) {
-  const max = TOTAL * 100;
-  const pct = (score / max) * 60 + safety * 0.3 + budget * 0.1;
-  if (pct >= 85) return { t: "Nanocientista Lendário", e: "🏆", d: "Decisões éticas, seguras e baseadas em evidências. Missão cumprida com excelência!" };
-  if (pct >= 65) return { t: "Pesquisador(a) Responsável", e: "🥈", d: "Boa atuação! Algumas decisões podem ser aprimoradas." };
-  if (pct >= 40) return { t: "Estagiário(a) em Formação", e: "🥉", d: "Você aprendeu bastante, mas a segurança e a ética precisam de mais atenção." };
-  return { t: "Missão Comprometida", e: "⚠️", d: "Muitas decisões arriscadas. Revise as explicações e tente de novo!" };
-}
-
-function End({ s, onRestart, onMenu }: { s: State; onRestart: () => void; onMenu: () => void }) {
-  const r = rank(s.score, s.safety, s.budget);
-  const good = s.decisions.filter((d) => d.quality === "otima").length;
-  return (
-    <div className="fade-in space-y-6">
-      <div className="card-glass p-6 text-center sm:p-10">
-        <div className="text-6xl">{r.e}</div>
-        <p className="font-display mt-3 text-sm uppercase tracking-widest text-accent">Missão concluída</p>
-        <h2 className="font-display glow-text mt-1 text-3xl font-black sm:text-4xl">{r.t}</h2>
-        <p className="mt-3 text-muted-foreground">{r.d}</p>
-        <div className="mt-6 grid gap-3 sm:grid-cols-4">
-          <Stat k="Pontuação" v={`${s.score}`} />
-          <Stat k="Segurança" v={`${s.safety}%`} />
-          <Stat k="Orçamento" v={`${s.budget}%`} />
-          <Stat k="Acertos" v={`${good}/${TOTAL}`} />
-        </div>
+    <div className="relative z-10 mx-auto max-w-2xl px-4 py-10">
+      <div className="card-glass fade-in p-6 sm:p-10">
+        <h2 className="font-display glow-text text-2xl font-bold sm:text-3xl">{title}</h2>
+        <div className="mt-6">{children}</div>
+        <button className="btn-hero mt-8" onClick={onBack}>← Voltar ao menu</button>
       </div>
-      <div className="card-glass p-6">
-        <h3 className="font-display text-xl font-bold">Suas decisões</h3>
-        <ul className="mt-4 space-y-2">
-          {s.decisions.map((d, i) => (
-            <li key={i} className={`decision fb-${d.quality}`}>
-              <span className="text-xs text-muted-foreground">{d.phase} · {d.challenge}</span>
-              <span className="block">{d.quality === "otima" ? "✅" : d.quality === "parcial" ? "⚠️" : "❌"} {d.choice}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div className="card-glass p-6">
-        <h3 className="font-display text-xl font-bold">O que você aprendeu</h3>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {LEARNINGS.map((l) => (
-            <div key={l.t} className="rounded-lg border border-border bg-secondary/40 p-4">
-              <p className="font-display font-bold text-accent">{l.t}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{l.d}</p>
-            </div>
-          ))}
-        </div>
-        <p className="mt-4 text-xs text-muted-foreground">Conteúdo introdutório e educativo. Não substitui orientação médica.</p>
-      </div>
-      <div className="flex flex-wrap justify-center gap-3">
-        <button className="btn-hero" onClick={onRestart}>Jogar novamente</button>
-        <button className="btn-ghost" onClick={onMenu}>Voltar ao menu</button>
-      </div>
-    </div>
-  );
-}
-
-function Stat({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-secondary/40 p-4">
-      <p className="text-xs uppercase text-muted-foreground">{k}</p>
-      <p className="font-display mt-1 text-2xl font-bold text-primary">{v}</p>
-    </div>
-  );
-}
-
-function Particles() {
-  const items = Array.from({ length: 22 });
-  return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden>
-      {items.map((_, i) => (
-        <span
-          key={i}
-          className={i % 3 === 0 ? "cell" : "particle"}
-          style={{ left: `${(i * 47) % 100}%`, top: `${(i * 31) % 100}%`, animationDelay: `${(i % 7) * 1.3}s`, animationDuration: `${10 + (i % 5) * 3}s` }}
-        />
-      ))}
     </div>
   );
 }
