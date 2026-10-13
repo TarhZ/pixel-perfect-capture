@@ -4,10 +4,10 @@ import { Game } from "@/game/Game";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "NanoMissão: Salvando o Corpo Humano" },
-      { name: "description", content: "Jogo educativo sobre nanotecnologia médica, segurança e bioética." },
-      { property: "og:title", content: "NanoMissão: Salvando o Corpo Humano" },
-      { property: "og:description", content: "A ciência está em suas mãos. Jogue e aprenda nanomedicina." },
+      { title: "NanoMissão: Operação Corpo Humano" },
+      { name: "description", content: "Jogo 2D de exploração: pilote um nanorrobô médico pelo corpo humano e aprenda nanomedicina." },
+      { property: "og:title", content: "NanoMissão: Operação Corpo Humano" },
+      { property: "og:description", content: "Explore a corrente sanguínea, entregue medicamentos e aprenda nanotecnologia médica jogando." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
