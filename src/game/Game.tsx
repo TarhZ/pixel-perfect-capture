@@ -223,7 +223,7 @@ export function Game() {
           )}
 
           {/* canvas */}
-          <div className="relative flex-1">
+          <div className="relative min-h-0 flex-1 overflow-hidden">
             <canvas ref={canvasRef} className="block h-full w-full" />
 
             {/* registro de missão */}
