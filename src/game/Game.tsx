@@ -171,7 +171,7 @@ export function Game() {
         <Panel title="Controles" onBack={() => setScreen("menu")}>
           <ul className="space-y-3 text-muted-foreground">
             <li>⬅️➡️ <b className="text-foreground">Setas ou A/D</b>: mover o nanorrobô.</li>
-            <li>␣ <b className="text-foreground">Espaço</b>: pular / impulsionar (segure para impulso maior).</li>
+            <li>␣ <b className="text-foreground">Espaço</b>: pular / impulsionar (segure para impulso maior). Pressione de novo no ar para <b className="text-foreground">pulo duplo</b>.</li>
             <li>🔍 <b className="text-foreground">E</b>: interagir com equipamentos e pontos de risco.</li>
             <li>⏸️ <b className="text-foreground">Esc ou P</b>: pausar.</li>
             <li>📱 <b className="text-foreground">No celular</b>: use os botões de toque na tela.</li>
