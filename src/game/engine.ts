@@ -50,6 +50,7 @@ export class NanoEngine {
   private coyote = 0;
   private jumpBuf = 0;
   private prevJump = false;
+  private jumpsLeft = 2;
   private prevInteract = false;
   private facing = 1;
   private invuln = 0;
@@ -179,18 +180,27 @@ export class NanoEngine {
     else if (this.input.right) { this.vx = Math.min(this.vx + accel * dt, MOVE); this.facing = 1; }
     else this.vx *= this.onGround ? Math.pow(0.0001, dt) : Math.pow(0.02, dt);
 
-    // pulo com buffer + coyote
+    // pulo com buffer + coyote + pulo duplo
     if (this.input.jump && !this.prevJump) this.jumpBuf = 0.12;
     this.prevJump = this.input.jump;
     this.jumpBuf -= dt;
     this.coyote -= dt;
+    if (this.onGround) this.jumpsLeft = 2;
     if (this.jumpBuf > 0 && (this.onGround || this.coyote > 0)) {
       this.vy = JUMP;
       this.onGround = false;
       this.coyote = 0;
       this.jumpBuf = 0;
+      this.jumpsLeft = 1;
       this.thrustAnim = 0.3;
       this.burst(this.px, this.py + PLAYER_R, "#7dd3fc", 8);
+    } else if (this.jumpBuf > 0 && this.jumpsLeft > 0) {
+      // pulo duplo no ar
+      this.vy = JUMP * 0.88;
+      this.jumpsLeft = 0;
+      this.jumpBuf = 0;
+      this.thrustAnim = 0.35;
+      this.burst(this.px, this.py + PLAYER_R, "#4ade80", 12);
     }
     // impulso contínuo no ar (segurar espaço)
     if (this.input.jump && !this.onGround && this.vy < 0) this.vy -= 300 * dt;
