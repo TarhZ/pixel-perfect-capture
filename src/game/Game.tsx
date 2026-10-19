@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LEVELS, LEARNINGS, type Log } from "./levels";
+import { Surgery } from "./Surgery";
 import { NanoEngine, type HudState } from "./engine";
 import sesiAsset from "../assets/sesi.png.asset.json";
 import oliverAsset from "../assets/olivergames.png.asset.json";
 
 type Screen = "splash" | "menu" | "howto" | "info" | "intro" | "playing" | "paused" | "complete" | "gameover" | "end";
 const KEY = "nanomissao-save-v2";
+const SURGERY = {
+  id: LEVELS.length + 1,
+  icon: "🩺",
+  name: "Operação Microcirurgia",
+  intro: "Centro cirúrgico. Um paciente fictício precisa de uma microintervenção. Use os instrumentos da bandeja com o mouse (ou o dedo): prepare a área, localize a região-alvo com o nanoscanner, faça a incisão, libere nanopartículas terapêuticas de forma direcionada e finalize com a sutura. A nanotecnologia aqui é um recurso experimental de apoio — a equipe cirúrgica continua no comando.",
+  objective: "Conclua as etapas da cirurgia mantendo o paciente estável.",
+};
+const TOTAL = LEVELS.length + 1;
 const SPLASHES = [
   { src: sesiAsset.url, alt: "SESI" },
   { src: oliverAsset.url, alt: "Oliver Games" },
@@ -15,6 +24,7 @@ export function Game() {
   const [screen, setScreen] = useState<Screen>("splash");
   const [splashIdx, setSplashIdx] = useState(0);
   const [levelIdx, setLevelIdx] = useState(0);
+  const [runKey, setRunKey] = useState(0);
   const [hud, setHud] = useState<HudState | null>(null);
   const [log, setLog] = useState<Log | null>(null);
   const [gameOverReason, setGameOverReason] = useState("");
@@ -32,7 +42,7 @@ export function Game() {
       const raw = localStorage.getItem(KEY);
       if (raw) {
         const v = JSON.parse(raw);
-        if (v.levelIdx > 0 && v.levelIdx < LEVELS.length) setHasSave(true);
+        if (v.levelIdx > 0 && v.levelIdx < TOTAL) setHasSave(true);
       }
     } catch {}
   }, []);
@@ -50,6 +60,8 @@ export function Game() {
 
   const startLevel = useCallback((idx: number) => {
     setLevelIdx(idx);
+    setRunKey((k) => k + 1);
+    setHud(null);
     setLog(null);
     setScreen("playing");
     localStorage.setItem(KEY, JSON.stringify({ levelIdx: idx }));
@@ -58,13 +70,14 @@ export function Game() {
   // cria/destrói o motor quando entra na tela de jogo
   useEffect(() => {
     if (screen !== "playing" && screen !== "paused") return;
+    if (levelIdx >= LEVELS.length) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const engine = new NanoEngine(canvas, LEVELS[levelIdx]!, {
       onLog: (l) => setLog(l),
       onHud: (h) => setHud(h),
       onComplete: () => {
-        if (levelIdx + 1 >= LEVELS.length) {
+        if (levelIdx + 1 >= TOTAL) {
           localStorage.removeItem(KEY);
           setScreen("end");
         } else setScreen("complete");
@@ -140,7 +153,12 @@ export function Game() {
     }
   };
 
-  const level = LEVELS[levelIdx]!;
+  const isSurgery = levelIdx >= LEVELS.length;
+  const level = isSurgery ? SURGERY : LEVELS[levelIdx]!;
+  const finishSurgery = () => {
+    localStorage.removeItem(KEY);
+    setScreen("end");
+  };
   const inGame = screen === "playing" || screen === "paused" || screen === "complete" || screen === "gameover";
 
   const touchBtn = (key: "left" | "right" | "jump" | "interact", label: string, cls = "") => (
@@ -235,7 +253,7 @@ export function Game() {
         <div className="relative z-10 mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center px-4 text-center">
           <div className="card-glass fade-in p-6 sm:p-10">
             <div className="text-6xl">{level.icon}</div>
-            <p className="font-display mt-4 text-sm uppercase tracking-widest text-accent">Missão {level.id} de {LEVELS.length}</p>
+            <p className="font-display mt-4 text-sm uppercase tracking-widest text-accent">Missão {level.id} de {TOTAL}</p>
             <h2 className="font-display mt-1 text-2xl font-bold sm:text-3xl">{level.name}</h2>
             <p className="mt-4 text-muted-foreground">{level.intro}</p>
             <p className="mt-4 rounded-lg border border-border bg-secondary/40 p-3 text-sm text-primary">🎯 {level.objective}</p>
@@ -247,7 +265,13 @@ export function Game() {
       {inGame && (
         <div className="fixed inset-0 z-20 flex flex-col bg-background">
           {/* HUD */}
-          {hud && (
+          {isSurgery && (
+            <div className="game-hud">
+              <span className="font-display text-sm font-bold">🩺 M{TOTAL}/{TOTAL} · Operação Microcirurgia</span>
+              <button className="btn-ghost btn-sm" onClick={() => setScreen("paused")}>⏸</button>
+            </div>
+          )}
+          {!isSurgery && hud && (
             <div className="game-hud">
               <div className="flex items-center gap-2">
                 <span className="font-display text-sm font-bold">{hud.levelIcon} M{hud.levelIndex}/{hud.totalLevels}</span>
@@ -264,7 +288,19 @@ export function Game() {
 
           {/* canvas */}
           <div className="relative min-h-0 flex-1 overflow-hidden">
-            <canvas ref={canvasRef} className="block h-full w-full" />
+            {isSurgery ? (
+              <Surgery
+                key={runKey}
+                paused={screen !== "playing"}
+                onComplete={finishSurgery}
+                onFail={(reason) => {
+                  setGameOverReason(reason);
+                  setScreen("gameover");
+                }}
+              />
+            ) : (
+              <canvas ref={canvasRef} className="block h-full w-full" />
+            )}
 
             {/* registro de missão */}
             {log && screen === "playing" && (
@@ -276,7 +312,7 @@ export function Game() {
             )}
 
             {/* controles de toque */}
-            {isTouch && screen === "playing" && (
+            {isTouch && !isSurgery && screen === "playing" && (
               <>
                 <div className="touch-cluster left">
                   {touchBtn("left", "◀")}
@@ -301,7 +337,7 @@ export function Game() {
             {/* missão completa */}
             {screen === "complete" && (
               <Overlay title="✅ Missão cumprida!" sub={`${level.icon} ${level.name}`}>
-                <p className="max-w-md text-sm text-muted-foreground">Excelente trabalho, operador(a). Próxima missão: <b className="text-foreground">{LEVELS[levelIdx + 1]!.name}</b></p>
+                <p className="max-w-md text-sm text-muted-foreground">Excelente trabalho, operador(a). Próxima missão: <b className="text-foreground">{levelIdx + 1 < LEVELS.length ? LEVELS[levelIdx + 1]!.name : SURGERY.name}</b></p>
                 <button className="btn-hero" onClick={() => { setLevelIdx(levelIdx + 1); setScreen("intro"); localStorage.setItem(KEY, JSON.stringify({ levelIdx: levelIdx + 1 })); }}>Próxima missão →</button>
                 <button className="btn-ghost" onClick={() => startLevel(levelIdx)}>Rejogar esta missão</button>
               </Overlay>
