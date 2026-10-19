@@ -168,6 +168,28 @@ export function Game() {
 
   return (
     <div className="nano-bg relative min-h-screen overflow-hidden">
+      {screen === "splash" && (
+        <div className="splash-screen" onClick={() => setScreen("menu")}>
+          {SPLASHES.map((s, i) => (
+            <img
+              key={s.alt}
+              src={s.src}
+              alt={s.alt}
+              className={`splash-logo ${splashIdx === i ? "splash-show" : ""}`}
+            />
+          ))}
+          <button
+            className="btn-ghost btn-sm splash-skip"
+            onClick={(e) => {
+              e.stopPropagation();
+              setScreen("menu");
+            }}
+          >
+            Pular ▸
+          </button>
+        </div>
+      )}
+
       {screen === "menu" && (
         <div className="relative z-10 mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center px-4 text-center">
           <div className="nanobot mb-6" aria-hidden />
