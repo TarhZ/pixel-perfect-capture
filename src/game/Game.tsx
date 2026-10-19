@@ -58,6 +58,13 @@ export function Game() {
     };
   }, [screen]);
 
+  // registro de missão: some sozinho após 2 segundos
+  useEffect(() => {
+    if (!log) return;
+    const t = setTimeout(() => setLog(null), 2000);
+    return () => clearTimeout(t);
+  }, [log]);
+
   const startLevel = useCallback((idx: number) => {
     setLevelIdx(idx);
     setRunKey((k) => k + 1);
