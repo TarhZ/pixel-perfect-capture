@@ -311,7 +311,7 @@ export function Game() {
 
             {/* registro de missão */}
             {log && screen === "playing" && (
-              <div className="mission-log fade-in">
+              <div className="mission-log">
                 <p className="font-display text-sm font-bold text-accent">{log.title}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{log.text}</p>
                 <button className="btn-ghost btn-sm mt-2" onClick={() => setLog(null)}>Fechar ✕</button>
