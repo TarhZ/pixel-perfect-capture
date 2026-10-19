@@ -147,6 +147,11 @@
   .touch-btn:active { background: color-mix(in oklab, var(--primary) 35%, var(--secondary)); border-color: var(--primary); }
   .touch-jump { width: 4.6rem; height: 4.6rem; background: color-mix(in oklab, var(--primary) 25%, var(--secondary)); }
   .touch-interact { border-color: var(--warning); color: var(--warning); }
+  .splash-screen { position: fixed; inset: 0; z-index: 60; background: #000; display: grid; place-items: center; cursor: pointer; }
+  .splash-logo { grid-area: 1 / 1; max-width: min(72%, 960px); max-height: 62%; object-fit: contain; opacity: 0; transition: opacity .5s ease; }
+  .splash-show { opacity: 1; }
+  .splash-skip { position: absolute; right: 1.2rem; bottom: 1rem; font-size: .8rem; opacity: .6; }
+  .splash-skip:hover { opacity: 1; }
 }
 @keyframes float { 0% { transform: translate(0,0) } 50% { transform: translate(30px,-60px) } 100% { transform: translate(0,0) } }
 @keyframes spin { to { rotate: 360deg } }

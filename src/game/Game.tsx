@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LEVELS, LEARNINGS, type Log } from "./levels";
 import { NanoEngine, type HudState } from "./engine";
+import sesiAsset from "../assets/sesi.png.asset.json";
+import oliverAsset from "../assets/olivergames.png.asset.json";
 
-type Screen = "menu" | "howto" | "info" | "intro" | "playing" | "paused" | "complete" | "gameover" | "end";
+type Screen = "splash" | "menu" | "howto" | "info" | "intro" | "playing" | "paused" | "complete" | "gameover" | "end";
 const KEY = "nanomissao-save-v2";
+const SPLASHES = [
+  { src: sesiAsset.url, alt: "SESI" },
+  { src: oliverAsset.url, alt: "Oliver Games" },
+];
 
 export function Game() {
-  const [screen, setScreen] = useState<Screen>("menu");
+  const [screen, setScreen] = useState<Screen>("splash");
+  const [splashIdx, setSplashIdx] = useState(0);
   const [levelIdx, setLevelIdx] = useState(0);
   const [hud, setHud] = useState<HudState | null>(null);
   const [log, setLog] = useState<Log | null>(null);
@@ -29,6 +36,17 @@ export function Game() {
       }
     } catch {}
   }, []);
+
+  // abertura: cada logo em tela cheia por ~2s com fade entre elas
+  useEffect(() => {
+    if (screen !== "splash") return;
+    const t1 = setTimeout(() => setSplashIdx(1), 2500);
+    const t2 = setTimeout(() => setScreen("menu"), 5000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [screen]);
 
   const startLevel = useCallback((idx: number) => {
     setLevelIdx(idx);
@@ -150,6 +168,28 @@ export function Game() {
 
   return (
     <div className="nano-bg relative min-h-screen overflow-hidden">
+      {screen === "splash" && (
+        <div className="splash-screen" onClick={() => setScreen("menu")}>
+          {SPLASHES.map((s, i) => (
+            <img
+              key={s.alt}
+              src={s.src}
+              alt={s.alt}
+              className={`splash-logo ${splashIdx === i ? "splash-show" : ""}`}
+            />
+          ))}
+          <button
+            className="btn-ghost btn-sm splash-skip"
+            onClick={(e) => {
+              e.stopPropagation();
+              setScreen("menu");
+            }}
+          >
+            Pular ▸
+          </button>
+        </div>
+      )}
+
       {screen === "menu" && (
         <div className="relative z-10 mx-auto flex min-h-screen max-w-4xl flex-col items-center justify-center px-4 text-center">
           <div className="nanobot mb-6" aria-hidden />
